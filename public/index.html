@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Server-SQL - Editor SQL Web</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs/editor/editor.main.min.css">
+    <style>
+        #editor { height: 400px; border: 1px solid #ddd; }
+        .result-table { overflow-x: auto; max-height: 400px; }
+        table { border-collapse: collapse; width: 100%; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #f2f2f2; }
+    </style>
+</head>
+<body class="bg-gray-100">
+    <div class="container mx-auto p-4">
+        <h1 class="text-3xl font-bold mb-4">Server-SQL</h1>
+        
+        <!-- Conexión -->
+        <div class="bg-white rounded-lg shadow p-4 mb-4">
+            <h2 class="text-xl font-semibold mb-2">Configurar conexión</h2>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                    <label class="block mb-1">Tipo BD:</label>
+                    <select id="dbType" class="w-full border rounded p-2">
+                        <option value="sqlite">SQLite</option>
+                        <option value="mysql">MySQL</option>
+                        <option value="postgres">PostgreSQL</option>
+                    </select>
+                </div>
+                <div id="sqliteConfig">
+                    <label class="block mb-1">Archivo DB:</label>
+                    <input type="text" id="dbFile" value="./data/database.db" class="w-full border rounded p-2">
+                </div>
+                <div id="mysqlConfig" class="hidden">
+                    <label class="block mb-1">Host:</label>
+                    <input type="text" id="mysqlHost" placeholder="localhost" class="w-full border rounded p-2 mb-2">
+                    <input type="text" id="mysqlPort" placeholder="3306" class="w-full border rounded p-2 mb-2">
+                    <input type="text" id="mysqlUser" placeholder="usuario" class="w-full border rounded p-2 mb-2">
+                    <input type="password" id="mysqlPass" placeholder="contraseña" class="w-full border rounded p-2 mb-2">
+                    <input type="text" id="mysqlDB" placeholder="base de datos" class="w-full border rounded p-2">
+                </div>
+                <div id="pgConfig" class="hidden">
+                    <label class="block mb-1">Host:</label>
+                    <input type="text" id="pgHost" placeholder="localhost" class="w-full border rounded p-2 mb-2">
+                    <input type="text" id="pgPort" placeholder="5432" class="w-full border rounded p-2 mb-2">
+                    <input type="text" id="pgUser" placeholder="usuario" class="w-full border rounded p-2 mb-2">
+                    <input type="password" id="pgPass" placeholder="contraseña" class="w-full border rounded p-2 mb-2">
+                    <input type="text" id="pgDB" placeholder="base de datos" class="w-full border rounded p-2">
+                </div>
+            </div>
+            <button onclick="connect()" class="mt-4 bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">Conectar</button>
+            <span id="connStatus" class="ml-4 text-sm"></span>
+        </div>
+
+        <!-- Editor SQL -->
+        <div class="bg-white rounded-lg shadow p-4 mb-4">
+            <h2 class="text-xl font-semibold mb-2">Editor SQL</h2>
+            <div id="editor"></div>
+            <div class="mt-2 flex gap-2">
+                <button onclick="executeQuery()" class="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600">Ejecutar (F5)</button>
+                <button onclick="exportCSV()" class="bg-purple-500 text-white px-4 py-2 rounded hover:bg-purple-600">Exportar CSV</button>
+                <button onclick="exportJSON()" class="bg-indigo-500 text-white px-4 py-2 rounded hover:bg-indigo-600">Exportar JSON</button>
+            </div>
+        </div>
+
+        <!-- Resultados -->
+        <div class="bg-white rounded-lg shadow p-4">
+            <h2 class="text-xl font-semibold mb-2">Resultados</h2>
+            <div id="results" class="result-table"></div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs/loader.js"></script>
+    <script>
+        let editor;
+        let currentDbType = 'sqlite';
+        let currentData = [];
+
+        require.config({ paths: { vs: 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs' } });
+        require(['vs/editor/editor.main'], function() {
+            editor = monaco.editor.create(document.getElementById('editor'), {
+                value: 'SELECT * FROM sqlite_master WHERE type="table";',
+                language: 'sql',
+                theme: 'vs-dark'
+            });
+        });
+
+        document.getElementById('dbType').addEventListener('change', function(e) {
+            currentDbType = e.target.value;
+            document.getElementById('sqliteConfig').classList.add('hidden');
+            document.getElementById('mysqlConfig').classList.add('hidden');
+            document.getElementById('pgConfig').classList.add('hidden');
+            if (currentDbType === 'sqlite') document.getElementById('sqliteConfig').classList.remove('hidden');
+            if (currentDbType === 'mysql') document.getElementById('mysqlConfig').classList.remove('hidden');
+            if (currentDbType === 'postgres') document.getElementById('pgConfig').classList.remove('hidden');
+        });
+
+        async function connect() {
+            let url = `/api/connect/${currentDbType}`;
+            let body = {};
+            if (currentDbType === 'sqlite') body = { dbFile: document.getElementById('dbFile').value };
+            if (currentDbType === 'mysql') body = {
+                host: document.getElementById('mysqlHost').value,
+                port: document.getElementById('mysqlPort').value,
+                user: document.getElementById('mysqlUser').value,
+                password: document.getElementById('mysqlPass').value,
+                database: document.getElementById('mysqlDB').value
+            };
+            if (currentDbType === 'postgres') body = {
+                host: document.getElementById('pgHost').value,
+                port: document.getElementById('pgPort').value,
+                user: document.getElementById('pgUser').value,
+                password: document.getElementById('pgPass').value,
+                database: document.getElementById('pgDB').value
+            };
+
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            });
+            const result = await response.json();
+            document.getElementById('connStatus').innerText = result.success ? '✅ Conectado' : '❌ Error: ' + result.error;
+        }
+
+        async function executeQuery() {
+            const sql = editor.getValue();
+            const response = await fetch('/api/query', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ dbType: currentDbType, sql })
+            });
+            const result = await response.json();
+            if (result.error) {
+                document.getElementById('results').innerHTML = `<div class="text-red-500">Error: ${result.error}</div>`;
+                return;
+            }
+            currentData = result.data;
+            displayResults(currentData);
+        }
+
+        function displayResults(data) {
+            if (!data || data.length === 0) {
+                document.getElementById('results').innerHTML = '<div>No hay resultados</div>';
+                return;
+            }
+            const columns = Object.keys(data[0]);
+            let html = '<table><thead><tr>';
+            columns.forEach(col => html += `<th>${col}</th>`);
+            html += '</tr></thead><tbody>';
+            data.forEach(row => {
+                html += '<tr>';
+                columns.forEach(col => html += `<td>${row[col] || ''}</td>`);
+                html += '</tr>';
+            });
+            html += '</tbody></table>';
+            document.getElementById('results').innerHTML = html;
+        }
+
+        function exportCSV() {
+            if (!currentData.length) return;
+            const columns = Object.keys(currentData[0]);
+            let csv = columns.join(',') + '\n';
+            currentData.forEach(row => {
+                csv += columns.map(col => `"${row[col] || ''}"`).join(',') + '\n';
+            });
+            downloadFile(csv, 'query_results.csv', 'text/csv');
+        }
+
+        function exportJSON() {
+            downloadFile(JSON.stringify(currentData, null, 2), 'query_results.json', 'application/json');
+        }
+
+        function downloadFile(content, filename, mime) {
+            const blob = new Blob([content], { type: mime });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = filename;
+            link.click();
+        }
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'F5') {
+                e.preventDefault();
+                executeQuery();
+            }
+        });
+    </script>
+</body>
+</html>
